@@ -1,0 +1,5 @@
+{
+  "instructions": "Implement greet(name) in greet.py so it returns the string 'Hello, <name>!' (for example greet('Keel') returns 'Hello, Keel!'). Do not edit the test file. Submit when done.",
+  "verify_command": "python -m unittest -q test_greet",
+  "protected_paths": ["test_greet.py"]
+}

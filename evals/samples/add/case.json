@@ -1,0 +1,4 @@
+{
+  "instructions": "The file add.py defines add(a, b) but raises NotImplementedError. Edit add.py so that add(a, b) returns the sum of a and b. When the implementation is correct, submit.",
+  "verify_command": "python -c \"import add; assert add.add(2, 3) == 5; assert add.add(-1, 1) == 0; print('ok')\""
+}
