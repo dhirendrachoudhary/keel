@@ -44,6 +44,7 @@ traces/
 runs/
 eval_results/
 *.trace.jsonl
+report.json
 
 # Benchmark repos / datasets (fetched, not vendored)
 datasets/

@@ -11,7 +11,7 @@ import keel.serving.backends.mlx as mlxmod
 from keel.baseline.agent import _first_turn
 from keel.cli import main
 from keel.serving.backends import MLXBackend, create_backend
-from keel.serving.backends.base import GenerationResult, InferenceBackend
+from keel.serving.backends.base import ChatMessage, GenerationResult, InferenceBackend
 
 
 @dataclass
@@ -72,6 +72,89 @@ def test_stream_yields_text_chunks(monkeypatch: pytest.MonkeyPatch) -> None:
 def test_generate_rejects_grammar_until_m2() -> None:
     with pytest.raises(NotImplementedError):
         MLXBackend("m").generate("x", max_tokens=8, grammar="{...}")
+
+
+# --- chat: real template on MLX, naive fallback on the base class ----------
+
+
+class _FakeTokenizer:
+    """Stands in for an mlx-lm tokenizer's apply_chat_template."""
+
+    def __init__(self) -> None:
+        self.seen_messages: list[dict[str, str]] | None = None
+
+    def apply_chat_template(
+        self, messages: list[dict[str, str]], *, add_generation_prompt: bool, tokenize: bool
+    ) -> str:
+        assert add_generation_prompt is True
+        assert tokenize is False
+        self.seen_messages = messages
+        rendered = "".join(f"<|{m['role']}|>{m['content']}" for m in messages)
+        return rendered + "<|assistant|>"
+
+
+def test_mlx_chat_renders_via_tokenizer_template(monkeypatch: pytest.MonkeyPatch) -> None:
+    tokenizer = _FakeTokenizer()
+    monkeypatch.setattr(mlxmod, "_load", lambda model_id: ("MODEL", tokenizer))
+
+    captured_prompt: dict[str, str] = {}
+
+    def fake_stream(
+        model: object, tok: object, prompt: str, max_tokens: int, temperature: float
+    ) -> Iterator[_Resp]:
+        captured_prompt["prompt"] = prompt
+        yield _Resp(text="```submit\nok\n```", prompt_tokens=3, generation_tokens=2)
+
+    monkeypatch.setattr(mlxmod, "_stream_responses", fake_stream)
+
+    messages = [ChatMessage("system", "be terse"), ChatMessage("user", "ping")]
+    result = MLXBackend("some/model").chat(messages, max_tokens=16)
+
+    assert tokenizer.seen_messages == [
+        {"role": "system", "content": "be terse"},
+        {"role": "user", "content": "ping"},
+    ]
+    assert captured_prompt["prompt"] == "<|system|>be terse<|user|>ping<|assistant|>"
+    assert result.text == "```submit\nok\n```"
+
+
+def test_mlx_chat_rejects_grammar_until_m2(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(mlxmod, "_load", lambda model_id: ("MODEL", _FakeTokenizer()))
+    with pytest.raises(NotImplementedError):
+        MLXBackend("m").chat([ChatMessage("user", "hi")], max_tokens=8, grammar="{...}")
+
+
+def test_base_chat_default_falls_back_to_generate() -> None:
+    class _EchoBackend(InferenceBackend):
+        name = "echo"
+
+        def generate(
+            self,
+            prompt: str,
+            *,
+            max_tokens: int,
+            temperature: float = 0.0,
+            grammar: str | None = None,
+        ) -> GenerationResult:
+            return GenerationResult(text=prompt, prompt_tokens=1, completion_tokens=1)
+
+        def stream(
+            self,
+            prompt: str,
+            *,
+            max_tokens: int,
+            temperature: float = 0.0,
+            grammar: str | None = None,
+        ) -> Iterator[str]:
+            yield prompt
+
+    result = _EchoBackend().chat(
+        [ChatMessage("system", "be terse"), ChatMessage("user", "ping")], max_tokens=8
+    )
+    # No real template available, so the default renders a role-labelled transcript.
+    assert "SYSTEM:\nbe terse" in result.text
+    assert "USER:\nping" in result.text
+    assert result.text.endswith("ASSISTANT:\n")
 
 
 # --- raw-completion turn truncation ---------------------------------------

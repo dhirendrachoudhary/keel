@@ -13,7 +13,7 @@ from keel.baseline import (
     SubmitAction,
     parse_action,
 )
-from keel.serving.backends.base import GenerationResult, InferenceBackend
+from keel.serving.backends.base import ChatMessage, GenerationResult, InferenceBackend
 
 
 class ScriptedBackend(InferenceBackend):
@@ -131,3 +131,58 @@ def test_agent_hits_max_steps_on_persistent_bad_output(tmp_path: Path) -> None:
     assert result.trace is not None
     assert result.trace.metrics["parse_errors"] == 3
     assert result.trace.metrics["tool_call_error_rate"] == 1.0
+
+
+class _RecordingBackend(InferenceBackend):
+    """Records every ``chat()`` call's message list, for verifying the agent builds a
+    proper structured conversation rather than a flat string."""
+
+    name = "recording"
+
+    def __init__(self, responses: Sequence[str]) -> None:
+        self._responses = list(responses)
+        self.calls: list[list[ChatMessage]] = []
+
+    def generate(
+        self, prompt: str, *, max_tokens: int, temperature: float = 0.0, grammar: str | None = None
+    ) -> GenerationResult:
+        raise AssertionError("the agent should call chat(), not generate(), directly")
+
+    def stream(
+        self, prompt: str, *, max_tokens: int, temperature: float = 0.0, grammar: str | None = None
+    ) -> Iterator[str]:
+        raise AssertionError("not used by the agent")
+
+    def chat(
+        self,
+        messages: Sequence[ChatMessage],
+        *,
+        max_tokens: int,
+        temperature: float = 0.0,
+        grammar: str | None = None,
+    ) -> GenerationResult:
+        self.calls.append(list(messages))
+        text = self._responses.pop(0)
+        return GenerationResult(text=text, prompt_tokens=1, completion_tokens=1)
+
+
+def test_agent_builds_a_structured_chat_history(tmp_path: Path) -> None:
+    backend = _RecordingBackend(
+        [
+            "```bash\necho hi\n```",
+            "```submit\ndone\n```",
+        ]
+    )
+    agent = BaselineAgent(backend, workspace=tmp_path, max_steps=5)
+    agent.run("say hi", task_id="t1", model_id="fake")
+
+    assert len(backend.calls) == 2
+    first_call = backend.calls[0]
+    assert [m.role for m in first_call] == ["system", "user"]
+    assert first_call[1].content == "say hi"
+
+    second_call = backend.calls[1]
+    assert [m.role for m in second_call] == ["system", "user", "assistant", "user"]
+    assert second_call[2].content == "```bash\necho hi\n```"
+    assert "OBSERVATION:" in second_call[3].content
+    assert "hi" in second_call[3].content

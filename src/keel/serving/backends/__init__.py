@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
-from keel.serving.backends.base import GenerationResult, InferenceBackend
+from keel.serving.backends.base import ChatMessage, GenerationResult, InferenceBackend
 from keel.serving.backends.mlx import MLXBackend
 
-__all__ = ["GenerationResult", "InferenceBackend", "MLXBackend", "create_backend"]
+__all__ = ["ChatMessage", "GenerationResult", "InferenceBackend", "MLXBackend", "create_backend"]
 
 _MLX_NAMES = {"mlx-lm", "mlx"}
 

@@ -2,8 +2,9 @@
 
 Linear append-only history; one bash action per step; stateless execution; no context
 folding and no skills — that minimalism is the point, so later modules have a yardstick
-to beat. Model access goes through the ``InferenceBackend`` interface, so the loop runs
-against any local backend (or a scripted fake in tests).
+to beat. Model access goes through the ``InferenceBackend`` interface's ``chat()`` method,
+so an instruct model gets its real chat template (when the backend has one) and the loop
+runs against any local backend, or a scripted fake in tests.
 """
 
 from __future__ import annotations
@@ -13,7 +14,7 @@ from pathlib import Path
 
 from keel.baseline.actions import BashAction, ParseError, SubmitAction, parse_action
 from keel.baseline.bash import BashTool
-from keel.serving.backends.base import InferenceBackend
+from keel.serving.backends.base import ChatMessage, InferenceBackend
 from keel.trace.schema import ToolCall, TraceRecord
 
 SYSTEM_PROMPT = """You are a coding agent working in a shell. Each turn, reply with a
@@ -34,9 +35,9 @@ self-contained commands. When the task is complete, reply instead with:
 MAX_STEPS = 30
 MAX_TOKENS_PER_STEP = 1024
 
-# A raw-completion model may keep going past its turn and hallucinate the next role
-# header; keep only the model's first turn.
-_ROLE_DELIMITERS = ("\nOBSERVATION:", "\nTASK:", "\nSYSTEM:", "\nASSISTANT:")
+# A model may ignore its stop token and keep going past its turn, hallucinating the next
+# role's text; keep only what looks like the model's own turn.
+_ROLE_DELIMITERS = ("\nOBSERVATION:", "\nUSER:", "\nSYSTEM:", "\nASSISTANT:")
 
 
 def _first_turn(text: str) -> str:
@@ -71,27 +72,30 @@ class BaselineAgent:
         self.bash = bash or BashTool(workspace=workspace)
 
     def run(self, task: str, *, task_id: str = "baseline", model_id: str = "") -> AgentResult:
-        history: list[str] = [f"SYSTEM:\n{SYSTEM_PROMPT}", f"TASK:\n{task}"]
+        messages: list[ChatMessage] = [
+            ChatMessage("system", SYSTEM_PROMPT),
+            ChatMessage("user", task),
+        ]
+        transcript: list[str] = [f"SYSTEM:\n{SYSTEM_PROMPT}", f"USER:\n{task}"]
         tool_calls: list[ToolCall] = []
         peak_active_tokens = 0
         parse_errors = 0
         failed_commands = 0
 
         for step in range(1, self.max_steps + 1):
-            prompt = "\n\n".join(history) + "\n\nASSISTANT:\n"
-            gen = self.backend.generate(prompt, max_tokens=MAX_TOKENS_PER_STEP, temperature=0.0)
+            gen = self.backend.chat(messages, max_tokens=MAX_TOKENS_PER_STEP, temperature=0.0)
             peak_active_tokens = max(peak_active_tokens, gen.prompt_tokens + gen.completion_tokens)
             reply = _first_turn(gen.text)
-            history.append(f"ASSISTANT:\n{reply}")
+            messages.append(ChatMessage("assistant", reply))
+            transcript.append(f"ASSISTANT:\n{reply}")
 
             try:
                 action = parse_action(reply)
             except ParseError as exc:
                 parse_errors += 1
-                history.append(
-                    f"OBSERVATION:\ninvalid action ({exc}). "
-                    "Reply with exactly one ```bash or ```submit block."
-                )
+                note = f"invalid action ({exc}). Reply with exactly one ```bash or ```submit block."
+                messages.append(ChatMessage("user", note))
+                transcript.append(f"OBSERVATION:\n{note}")
                 continue
 
             if isinstance(action, SubmitAction):
@@ -99,7 +103,7 @@ class BaselineAgent:
                     outcome="submitted",
                     final_message=action.message,
                     steps=step,
-                    transcript=history,
+                    transcript=transcript,
                     trace=self._trace(
                         task_id,
                         model_id,
@@ -125,13 +129,15 @@ class BaselineAgent:
                     ok=obs.exit_code == 0,
                 )
             )
-            history.append(f"OBSERVATION:\n{obs.render()}")
+            observation = f"OBSERVATION:\n{obs.render()}"
+            messages.append(ChatMessage("user", observation))
+            transcript.append(observation)
 
         return AgentResult(
             outcome="max_steps",
             final_message="",
             steps=self.max_steps,
-            transcript=history,
+            transcript=transcript,
             trace=self._trace(
                 task_id,
                 model_id,
