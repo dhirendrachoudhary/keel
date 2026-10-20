@@ -1,7 +1,7 @@
 """Keel command-line interface.
 
-Surface: ``setup | doctor | run | eval | ablate``. ``setup``, ``run`` and ``eval`` do real
-work; ``doctor`` and ``ablate`` are not implemented yet. Nothing here ever makes a cloud
+Surface: ``setup | doctor | run | eval | ablate``. ``setup``, ``doctor``, ``run`` and
+``eval`` do real work; ``ablate`` is not implemented yet. Nothing here ever makes a cloud
 call — Keel is strictly local.
 """
 
@@ -65,6 +65,31 @@ def _cmd_setup(write_config: bool = True, agents: int = 3) -> int:
 
     print("\nNot yet implemented: speed-feature tuning, benchmark/auto-tune, and `keel doctor`.")
     return 0
+
+
+def _cmd_doctor() -> int:
+    from keel.config import CONFIG_PATH, KeelConfig
+    from keel.serving.doctor import diagnose, probe_swap_gb
+    from keel.serving.profiler import detect
+
+    profile = detect()
+    config = KeelConfig.load() if CONFIG_PATH.exists() else None
+    findings = diagnose(profile, config, swap_used_gb=probe_swap_gb())
+
+    if not findings:
+        print("doctor: no configuration- or system-level issues found.")
+        print(
+            "(Prefill-bound prompts and runaway reasoning tokens show up only during a run — "
+            "check a trace from `keel run` or `keel eval`.)"
+        )
+        return 0
+
+    rank = {"critical": 0, "warning": 1, "info": 2}
+    findings.sort(key=lambda f: rank.get(f.severity, 9))
+    for f in findings:
+        print(f"[{f.severity.upper()}] {f.cause}: {f.detail}")
+        print(f"    fix: {f.remedy}")
+    return 1 if any(f.severity == "critical" for f in findings) else 0
 
 
 def _cmd_run(task: str, model: str | None, max_steps: int, workspace: str) -> int:
@@ -207,6 +232,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         return 0
     if command == "setup":
         return _cmd_setup(write_config=not args.no_write, agents=args.agents)
+    if command == "doctor":
+        return _cmd_doctor()
     if command == "run":
         return _cmd_run(args.task, args.model, args.max_steps, args.workspace)
     if command == "eval":

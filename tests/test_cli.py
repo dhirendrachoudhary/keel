@@ -30,7 +30,7 @@ def test_version_flag_exits_zero(capsys: pytest.CaptureFixture[str]) -> None:
     assert "keel" in capsys.readouterr().out
 
 
-@pytest.mark.parametrize("cmd", ["doctor", "ablate"])
+@pytest.mark.parametrize("cmd", ["ablate"])
 def test_unimplemented_subcommands_are_known_stubs(
     cmd: str, capsys: pytest.CaptureFixture[str]
 ) -> None:

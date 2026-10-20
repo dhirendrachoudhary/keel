@@ -110,3 +110,12 @@ DEFAULT_CATALOG: tuple[ModelSpec, ...] = (
         notes="Tiny — for smoke tests and low-memory machines.",
     ),
 )
+
+
+def find_by_model_id(model_id: str) -> tuple[ModelSpec, QuantOption] | None:
+    """Look up a (spec, quant) in the catalog by its MLX model id, or None."""
+    for spec in DEFAULT_CATALOG:
+        for quant in spec.quants:
+            if quant.model_id == model_id:
+                return spec, quant
+    return None
