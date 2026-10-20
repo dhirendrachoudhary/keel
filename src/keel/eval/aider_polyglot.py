@@ -45,6 +45,7 @@ class AiderPolyglotBenchmark(Benchmark):
                     benchmark=self.name,
                     instructions=instructions,
                     source_dir=str(exercise),
+                    exclude_names=[".meta"],  # never copy the reference solution into the workspace
                     protected_paths=protected,
                     verify_command=_LANG_VERIFY[lang],
                     metadata={"language": lang, "exercise": exercise.name},

@@ -6,6 +6,7 @@ from keel.baseline.agent import AgentResult
 from keel.eval import EvalReport, LocalBenchmark, run_benchmark, run_case
 from keel.eval.case import EvalCase
 from keel.eval.report import CaseResult
+from keel.eval.runner import prepare_workspace
 from keel.trace import TraceStore
 from keel.trace.schema import TraceRecord
 
@@ -97,6 +98,24 @@ def test_run_benchmark_report_and_limit(tmp_path: Path) -> None:
     assert isinstance(report, EvalReport)
     assert report.n_total == 1  # limit honored
     assert "add" in report.results[0].case_id
+
+
+def test_prepare_workspace_excludes_named_dirs(tmp_path: Path) -> None:
+    source = tmp_path / "src"
+    (source / ".meta").mkdir(parents=True)
+    (source / ".meta" / "example.py").write_text("# the answer")
+    (source / "stub.py").write_text("def f(): ...")
+    case = EvalCase(
+        case_id="e",
+        benchmark="local",
+        instructions="",
+        source_dir=str(source),
+        exclude_names=[".meta"],
+    )
+    ws = tmp_path / "ws"
+    prepare_workspace(ws, case)
+    assert (ws / "stub.py").exists()
+    assert not (ws / ".meta").exists()  # reference solution excluded
 
 
 def test_report_aggregates() -> None:

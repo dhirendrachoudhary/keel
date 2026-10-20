@@ -13,6 +13,9 @@ class EvalCase:
     instructions: str  # the prompt handed to the agent
     source_dir: str | None = None  # copied into the workspace before the agent runs
     seed_files: dict[str, str] = field(default_factory=dict)  # extra files: relpath -> content
+    # Top-level names in source_dir to NOT copy into the workspace (e.g. a benchmark's
+    # reference-solution directory, which the agent must never see).
+    exclude_names: list[str] = field(default_factory=list)
     setup_commands: list[str] = field(default_factory=list)  # shell run in the workspace pre-agent
     # Files restored from source_dir just before verification, so the agent cannot game the
     # ground-truth tests by editing them.

@@ -53,7 +53,7 @@ def baseline_agent_fn(
 def prepare_workspace(workspace: Path, case: EvalCase) -> None:
     workspace.mkdir(parents=True, exist_ok=True)
     if case.source_dir:
-        _copy_tree(Path(case.source_dir), workspace)
+        _copy_tree(Path(case.source_dir), workspace, exclude=set(case.exclude_names))
     for rel, content in case.seed_files.items():
         target = workspace / rel
         target.parent.mkdir(parents=True, exist_ok=True)
@@ -155,9 +155,10 @@ def _error_result(case_id: str, outcome: str, started: float, message: str) -> C
     )
 
 
-def _copy_tree(src: Path, dst: Path) -> None:
+def _copy_tree(src: Path, dst: Path, exclude: set[str] | None = None) -> None:
+    skip = {"case.json"} | (exclude or set())
     for item in src.iterdir():
-        if item.name == "case.json":
+        if item.name in skip:
             continue
         dest = dst / item.name
         if item.is_dir():

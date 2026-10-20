@@ -26,6 +26,7 @@ def test_aider_polyglot_maps_python_exercises(tmp_path: Path) -> None:
     assert "Do not edit the test files" in case.instructions
     assert case.verify_command == "python -m pytest -q"
     assert case.protected_paths == ["hello_world_test.py"]
+    assert case.exclude_names == [".meta"]  # reference solution never copied in
     assert case.metadata["language"] == "python"
 
 
